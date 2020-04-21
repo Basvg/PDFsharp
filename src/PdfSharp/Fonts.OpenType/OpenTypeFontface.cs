@@ -305,6 +305,8 @@ namespace PdfSharp.Fonts.OpenType
                     Debug-Break.Break();
 #endif
 
+                CorrectOffsetForTTC();
+
                 // Check if data is a TrueType collection font.
                 uint startTag = ReadULong();
                 if (startTag == TTCF)
@@ -321,7 +323,7 @@ namespace PdfSharp.Fonts.OpenType
                 _offsetTable.RangeShift = ReadUShort();
 
                 // Move to table dictionary at position 12
-                Debug.Assert(_pos == 12);
+                //Debug.Assert(_pos == 12); // Not correct for TTC files
                 //tableDictionary = (offsetTable.TableCount);
 
                 if (_offsetTable.Version == OTTO)
@@ -389,6 +391,76 @@ namespace PdfSharp.Fonts.OpenType
             {
                 GetType();
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Source: https://forum.pdfsharp.net/viewtopic.php?p=9039
+        /// </summary>
+        internal void CorrectOffsetForTTC()
+        {
+            _pos = 0;
+            string sTTCTag = this.ReadString(4);
+            if (sTTCTag != "ttcf")
+            {
+                _pos = 0; // Reset offset
+                return;
+            }
+
+            uint uiVersion = this.ReadULong();
+            uint uiFontCount = this.ReadULong();
+
+            bool bFoundFont = false;
+
+            for (uint uiFontIndex = 0; uiFontIndex < uiFontCount; ++uiFontIndex)
+            {
+                _pos = (int)(12 + (uiFontIndex * 4));
+                _pos = (int)this.ReadULong();
+
+                // Read offset table
+                uint nTempVersion = ReadULong();
+                uint nTempTableCount = ReadUShort();
+                uint nTempSearchRange = ReadUShort();
+                uint nTempEntrySelector = ReadUShort();
+                uint nTempRangeShift = ReadUShort();
+
+                TableDirectoryEntry nameTableEntry = null;
+
+                for (int idx = 0; idx < nTempTableCount; idx++)
+                {
+                    TableDirectoryEntry entry = TableDirectoryEntry.ReadFrom(this);
+                    if (entry.Tag == NameTable.Tag)
+                    {
+                        nameTableEntry = entry;
+                        break;
+                    }
+                }
+
+                if (nameTableEntry != null)
+                {
+                    _pos = nameTableEntry.Offset;
+                    TableDictionary.Add(nameTableEntry.Tag, nameTableEntry); // Add for create NameTable
+
+                    NameTable nametbl = new NameTable(this);
+
+                    TableDictionary.Remove(nameTableEntry.Tag); // clear after used
+
+                    if (nametbl.Name == FontSource.FontName)
+                    {
+                        // Found font
+                        _pos = (int)(12 + (uiFontIndex * 4));
+                        _pos = (int)this.ReadULong();
+
+                        bFoundFont = true;
+
+                        break;
+                    }
+                }
+            }
+
+            if (!bFoundFont)
+            {
+                _pos = 0;
             }
         }
 

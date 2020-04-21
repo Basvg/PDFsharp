@@ -94,7 +94,7 @@ namespace PdfSharp.Drawing
         internal static XFontSource GetOrCreateFromGdi(string typefaceKey, GdiFont gdiFont)
         {
             byte[] bytes = ReadFontBytesFromGdi(gdiFont);
-            XFontSource fontSource = GetOrCreateFrom(typefaceKey, bytes);
+            XFontSource fontSource = GetOrCreateFrom(typefaceKey, bytes, gdiFont.Name);
             return fontSource;
         }
 
@@ -142,9 +142,9 @@ namespace PdfSharp.Drawing
             //Debug.Assert(error == 0);
 
             // Get size of the font file.
-            bool isTtcf = false;
+            bool isTtcf = true;
             // In Azure I get 0xc0000022
-            int size = NativeMethods.GetFontData(hdc, 0, 0, null, 0);
+            int size = NativeMethods.GetFontData(hdc, ttcf, 0, null, 0);
 
             // Check for ntstatus.h: #define STATUS_ACCESS_DENIED             ((NTSTATUS)0xC0000022L)
             if ((uint)size == 0xc0000022)
@@ -152,9 +152,9 @@ namespace PdfSharp.Drawing
 
             if (size == NativeMethods.GDI_ERROR)
             {
-                // Assume that the font file is a true type collection.
-                size = NativeMethods.GetFontData(hdc, ttcf, 0, null, 0);
-                isTtcf = true;
+                // Assume that the font file is NOT a true type collection.
+                size = NativeMethods.GetFontData(hdc, 0, 0, null, 0);
+                isTtcf = false;
             }
             error = Marshal.GetLastWin32Error();
             //Debug.Assert(error == 0);
@@ -195,7 +195,7 @@ namespace PdfSharp.Drawing
         }
 #endif
 
-        static XFontSource GetOrCreateFrom(string typefaceKey, byte[] fontBytes)
+        static XFontSource GetOrCreateFrom(string typefaceKey, byte[] fontBytes, string fontName)
         {
             XFontSource fontSource;
             ulong key = FontHelper.CalcChecksum(fontBytes);
@@ -208,6 +208,11 @@ namespace PdfSharp.Drawing
             {
                 // No font source exists. Create new one and cache it.
                 fontSource = new XFontSource(fontBytes, key);
+
+                // Name is necessary for reading TTC files
+                if (fontSource.FontName == null)
+                    fontSource._fontName = fontName;
+
                 FontFactory.CacheNewFontSource(typefaceKey, fontSource);
             }
             return fontSource;
